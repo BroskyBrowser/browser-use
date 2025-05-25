@@ -74,18 +74,21 @@ class AgentMessagePrompt:
 		assert self.state
 
 	def get_user_message(self, use_vision: bool = True) -> HumanMessage:
-		elements_text = self.state.element_tree.clickable_elements_to_string(include_attributes=self.include_attributes)
+		elements_text = self.state.to_llm_payload()
 
 		has_content_above = (self.state.pixels_above or 0) > 0
 		has_content_below = (self.state.pixels_below or 0) > 0
 
+		# Add brief explanation of CSV format
+		csv_explanation = """CSV format: i=index, p=parentId, t=tag, tx=text, aria=aria-label(if different), int=interactive(0/1)"""
+
 		if elements_text != '':
 			if has_content_above:
 				elements_text = (
-					f'... {self.state.pixels_above} pixels above - scroll or extract content to see more ...\n{elements_text}'
+					f'... {self.state.pixels_above} pixels above - scroll or extract content to see more ...\n{csv_explanation}\n{elements_text}'
 				)
 			else:
-				elements_text = f'[Start of page]\n{elements_text}'
+				elements_text = f'[Start of page]\n{csv_explanation}\n{elements_text}'
 			if has_content_below:
 				elements_text = (
 					f'{elements_text}\n... {self.state.pixels_below} pixels below - scroll or extract content to see more ...'
