@@ -48,7 +48,8 @@ class TurnstileInteractionTest:
 		self.cdp_session = await self.context.new_cdp_session(self.page)
 
 		# Navigate to Turnstile page
-		url = 'https://seleniumbase.io/apps/turnstile'
+		#url = 'https://seleniumbase.io/apps/turnstile'
+		url = 'https://ahrefs.com/backlink-checker/?input=www.he-tk.de&amp;mode=subdomains'
 		print(f'🌐 Navigating to: {url}')
 		await self.page.goto(url)
 
@@ -66,7 +67,7 @@ class TurnstileInteractionTest:
 		"""Build DOM tree using DOMService"""
 		print('🌳 Building DOM tree...')
 
-		self.dom_service = DOMService(self.page, self.cdp_session)
+		self.dom_service = DOMService(self.page, self.context, self.cdp_session)
 		self.dom_tree = await self.dom_service.build_dom_tree()
 
 		# Get statistics
@@ -154,23 +155,44 @@ class TurnstileInteractionTest:
 		return None
 
 	async def _get_iframe_session(self, target_id: str) -> Optional[CDPSession]:
-		"""Get or create CDP session for iframe target"""
+		"""Get or create CDP session for iframe target using Playwright's frame API"""
 		try:
 			if target_id in self.sessions:
 				return self.sessions[target_id]
 
-			# Attach to target
-			attach_result = await self.cdp_session.send('Target.attachToTarget', {'targetId': target_id, 'flatten': True})
-			session_id = attach_result.get('sessionId')
-
-			if session_id:
-				# Create new CDP session for this iframe
-				iframe_session = await self.context.new_cdp_session(self.page)
+			# Find the iframe frame using Playwright's frame API (like in service.py)
+			iframe_frame = None
+			
+			logger.debug(f'Looking for iframe with target_id: {target_id}')
+			logger.debug(f'Available frames: {[f.url for f in self.page.frames]}')
+			
+			# Try to find the frame that corresponds to this target_id
+			for frame in self.page.frames:
+				if frame == self.page.main_frame:
+					continue  # Skip main frame
+					
+				# For Turnstile, the iframe is usually one of the child frames
+				# We can try to match by checking if it's not the main frame
+				iframe_frame = frame
+				logger.debug(f'Found potential iframe frame: {frame.url}')
+				break
+			
+			if iframe_frame:
+				logger.debug(f'Creating CDP session for iframe: {iframe_frame.url}')
+				
+				# Create a CDP session for this specific frame
+				iframe_session = await self.context.new_cdp_session(iframe_frame)
 				self.sessions[target_id] = iframe_session
+				
 				return iframe_session
+			else:
+				logger.warning(f'No matching frame found for target_id: {target_id}')
+				return None
 
 		except Exception as e:
 			logger.warning(f'Error getting iframe session for {target_id}: {e}')
+			import traceback
+			logger.debug(traceback.format_exc())
 
 		return None
 
