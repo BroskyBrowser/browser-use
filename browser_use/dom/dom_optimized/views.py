@@ -141,30 +141,45 @@ class DOMTree:
 
 	def translate_all_to_llm(self, format: str = 'json') -> str:
 		all_elements = self.get_all_elements()
-		if format == 'json':
-			return self._to_llm_json(all_elements)
-		elif format == 'csv':
-			return self._to_llm_csv(all_elements)
-		else:
-			raise ValueError(f'Invalid format: {format}')
+		match format:
+			case 'json':
+				return self._to_llm_json(all_elements)
+			case 'csv':
+				return self._to_llm_csv(all_elements)
+			case 'html':
+				return self._to_llm_html(all_elements)	
+			case 'markdown':
+				return self._to_llm_markdown(all_elements)
+			case _:
+				raise ValueError(f'Invalid format: {format}')
 
 	def translate_clickable_to_llm(self, format: str = 'json') -> str:
 		clickable_elements = self.get_clickable_elements()
-		if format == 'json':
-			return self._to_llm_json(clickable_elements)
-		elif format == 'csv':
-			return self._to_llm_csv(clickable_elements)
-		else:
-			raise ValueError(f'Invalid format: {format}')
+		match format:
+			case 'json':
+				return self._to_llm_json(clickable_elements)
+			case 'csv':
+				return self._to_llm_csv(clickable_elements)
+			case 'html':
+				return self._to_llm_html(clickable_elements)
+			case 'markdown':
+				return self._to_llm_markdown(clickable_elements)
+			case _:
+				raise ValueError(f'Invalid format: {format}')
 
 	def translate_visible_to_llm(self, format: str = 'json') -> str:
 		visible_elements = self.get_visible_elements()
-		if format == 'json':
-			return self._to_llm_json(visible_elements)
-		elif format == 'csv':
-			return self._to_llm_csv(visible_elements)
-		else:
-			raise ValueError(f'Invalid format: {format}')
+		match format:
+			case 'json':
+				return self._to_llm_json(visible_elements)
+			case 'csv':
+				return self._to_llm_csv(visible_elements)
+			case 'html':
+				return self._to_llm_html(visible_elements)
+			case 'markdown':
+				return self._to_llm_markdown(visible_elements)
+			case _:
+				raise ValueError(f'Invalid format: {format}')
 
 	# --------- LLM translation utils -------------
 
@@ -172,8 +187,8 @@ class DOMTree:
 		# JSON field meanings: i=index, p=parentId, t=tag, tx=text, aria=aria-label(if different), int=interactive, nid=node_id, bid=backend_node_id, fid=frame_id
 		nodes = []
 
-		for i, element in enumerate(elements):
-			node = {'i': i, 't': element.tag, 'nid': element.node_id, 'bid': element.backend_node_id, 'fid': element.frame_id}
+		for _, element in enumerate(elements):
+			node = {'i': element.node_id, 't': element.tag, 'nid': element.node_id, 'bid': element.backend_node_id, 'fid': element.frame_id}
 
 			if element.parent:
 				node['p'] = element.parent.node_id
@@ -185,7 +200,7 @@ class DOMTree:
 			if aria_label and aria_label != element.text_content.strip():
 				node['aria'] = aria_label
 
-			if element.is_clickable or element.is_focusable:
+			if element.is_interactive:
 				node['int'] = True
 
 			nodes.append(node)
@@ -194,21 +209,21 @@ class DOMTree:
 
 	def _to_llm_csv(self, elements: List[DOMElementNode]) -> str:
 		# CSV format: ni=nodeId, bni=backendNodeId, p=parentId, t=tag, tx=text, aria=aria-label(if different), int=interactive(0/1), nid=node_id, bid=backend_node_id, fid=frame_id
-		lines = ['nid|bnid|p|t|tx|aria|int']
+		lines = ['nid|bnid|pid|t|tx|aria|int|fid']
 
-		for i, element in enumerate(elements):
+		for _, element in enumerate(elements):
 			parent_id = element.parent.node_id if element.parent else ''
 			tag = element.tag
 			text = element.text_content.replace('|', ' ').replace('\n', ' ').strip()
 			aria_label = element.attributes.get('aria-label', '')
 			# Only include aria-label if it's different from text content
 			aria = aria_label if aria_label and aria_label != text else ''
-			interactive = '1' if element.is_clickable or element.is_focusable else '0'
+			interactive = '1' if element.is_interactive else '0'
 			node_id = element.node_id
 			backend_node_id = element.backend_node_id
 			frame_id = element.frame_id
 
-			lines.append(f'{i}|{parent_id}|{tag}|{text}|{aria}|{interactive}|{node_id}|{backend_node_id}|{frame_id}')
+			lines.append(f'{node_id}|{backend_node_id}|{parent_id}|{tag}|{text}|{aria}|{interactive}|{frame_id}')
 
 		return '\n'.join(lines)
 
@@ -216,7 +231,21 @@ class DOMTree:
 		return '\n'.join([f'{e.tag} {e.attributes} {e.text_content}' for e in elements])
 
 	def _to_llm_html(self, elements: List[DOMElementNode]) -> str:
-		return '\n'.join([f'<{e.tag} {e.attributes}>{e.text_content}</{e.tag}>' for e in elements])
+		html_lines = []
+		for e in elements:
+			# Convert attributes dict to HTML attribute string
+			attrs_str = ''
+			if e.attributes:
+				attrs_str = ' ' + ' '.join([f'{k}="{v}"' for k, v in e.attributes.items()])
+			
+			# Build the HTML element
+			if e.text_content.strip():
+				html_lines.append(f'<{e.tag}{attrs_str}>{e.text_content}</{e.tag}>')
+			else:
+				# Self-closing for empty elements
+				html_lines.append(f'<{e.tag}{attrs_str} />')
+		
+		return '\n'.join(html_lines)
 
 	def _to_llm_markdown(self, elements: List[DOMElementNode]) -> str:
 		return '\n'.join([f'## {e.tag}\n{e.attributes}\n{e.text_content}' for e in elements])

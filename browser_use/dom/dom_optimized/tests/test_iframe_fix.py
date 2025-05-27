@@ -74,8 +74,9 @@ async def test_iframe_fix():
 			if iframe.children:
 				for j, child in enumerate(iframe.children):
 					print(f'    Child {j + 1}: {child.tag if hasattr(child, "tag") else "text"} (frame_id: {child.frame_id})')
-		await asyncio.sleep(60)
 		await browser.close()
+
+		print(dom_tree.translate_all_to_llm(format='csv'))
 
 		# Return results
 		return {
