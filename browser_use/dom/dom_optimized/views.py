@@ -6,20 +6,21 @@ from typing import (
 	List,
 	Optional,
 )
-
+from playwright.async_api import Page, CDPSession
+import asyncio
 
 class DOMNode:
 	"""
 	Base node for any node in the DOM tree.
 	"""
 
-	def __init__(self, node_id: int, backend_node_id: int, frame_id: str):
+	def __init__(self, node_id: int, backend_node_id: int, frame_url: str):
 		# CDP node identifier
 		self.node_id: int = node_id
 		# CDP backend node identifier
 		self.backend_node_id: int = backend_node_id
-		# CDP frame identifier
-		self.frame_id: str = frame_id
+		# Frame URL instead of frame ID
+		self.frame_url: str = frame_url
 		# Pointer to parent node (None for root)
 		self.parent: Optional['DOMElementNode'] = None
 
@@ -40,12 +41,12 @@ class DOMElementNode(DOMNode):
 		self,
 		node_id: int,
 		backend_node_id: int,
-		frame_id: str,
+		frame_url: str,
 		tag: str,
 		attributes: Optional[Dict[str, str]] = None,
 		text_content: Optional[str] = None,
 	):
-		super().__init__(node_id, backend_node_id, frame_id)
+		super().__init__(node_id, backend_node_id, frame_url)
 		# Tag name, e.g. "div", "span", "a", etc.
 		self.tag: str = tag.lower()
 		# Attributes as they come from HTML: id, class, href, onclick…
@@ -78,6 +79,34 @@ class DOMElementNode(DOMNode):
 			p = p.parent
 		return anc
 
+	async def get_session_id(self, page: Page) -> CDPSession:
+		"""
+		Get the CDP session to interact with the element by matching frame URL.
+		"""
+
+		iframe_frame = None
+		for i, frame in enumerate(page.frames):
+			frame_url = frame.url
+
+			print(f'Checking frame {i}: If {frame_url} == {self.frame_url}')
+
+			if self.frame_url == frame_url:
+				iframe_frame = frame
+				break
+		
+		if not iframe_frame:
+			print(f'No matching frame found for iframe URL {self.frame_url}')
+			return None
+		
+		print(f'Processing iframe frame: {iframe_frame.url}')
+		
+		# Create a CDP session for this specific frame
+		print(f'Creating CDP session for frame: {iframe_frame.url}')
+		return await asyncio.wait_for(
+				page.context.new_cdp_session(iframe_frame),
+				timeout=3.0
+			)
+
 	# --------- Internal searches by predicate -------------
 
 	def find_all(self, predicate: Callable[['DOMElementNode'], bool]) -> List['DOMElementNode']:
@@ -103,8 +132,8 @@ class DOMTextNode(DOMNode):
 	Pure text node.
 	"""
 
-	def __init__(self, node_id: int, backend_node_id: int, frame_id: str, text: str):
-		super().__init__(node_id, backend_node_id, frame_id)
+	def __init__(self, node_id: int, backend_node_id: int, frame_url: str, text: str):
+		super().__init__(node_id, backend_node_id, frame_url)
 		self.text: str = text
 
 
@@ -129,6 +158,10 @@ class DOMTree:
 		"""Get elements that are interactive (enriched data when available)"""
 		return self.root.find_all(lambda e: e.is_interactive)
 
+	def get_clickable_elements(self) -> List[DOMElementNode]:
+		"""Get elements that are clickable (alias for interactive elements)"""
+		return self.get_interactive_elements()
+
 	def get_elements_with_bounding_box(self) -> List[DOMElementNode]:
 		"""Get elements that have bounding box data from layout"""
 		return self.root.find_all(lambda e: e.bounding_box is not None)
@@ -136,6 +169,14 @@ class DOMTree:
 	def get_elements_by_paint_order(self, min_paint_order: int = 0) -> List[DOMElementNode]:
 		"""Get elements with paint order >= min_paint_order (higher values are on top)"""
 		return self.root.find_all(lambda e: e.paint_order is not None and e.paint_order >= min_paint_order)
+	
+	def get_element_by_id(self, node_id: int, backend_node_id: int) -> Optional[DOMElementNode]:
+		"""Get element by node_id or backend_node_id"""
+		return self.root.find_all(lambda e: e.node_id == node_id or e.backend_node_id == backend_node_id)
+	
+	def get_element_by_condition(self, condition: Callable[['DOMElementNode'], bool]) -> Optional[DOMElementNode]:
+		"""Get element by condition"""
+		return self.root.find_all(condition)
 
 	# --------- LLM translation -------------
 
@@ -184,11 +225,11 @@ class DOMTree:
 	# --------- LLM translation utils -------------
 
 	def _to_llm_json(self, elements: List[DOMElementNode]) -> str:
-		# JSON field meanings: i=index, p=parentId, t=tag, tx=text, aria=aria-label(if different), int=interactive, nid=node_id, bid=backend_node_id, fid=frame_id
+		# JSON field meanings: i=index, p=parentId, t=tag, tx=text, aria=aria-label(if different), int=interactive, nid=node_id, bid=backend_node_id, fid=frame_url
 		nodes = []
 
 		for _, element in enumerate(elements):
-			node = {'i': element.node_id, 't': element.tag, 'nid': element.node_id, 'bid': element.backend_node_id, 'fid': element.frame_id}
+			node = {'i': element.node_id, 't': element.tag, 'nid': element.node_id, 'bid': element.backend_node_id, 'fid': element.frame_url}
 
 			if element.parent:
 				node['p'] = element.parent.node_id
@@ -208,7 +249,7 @@ class DOMTree:
 		return json.dumps({'n': nodes}, separators=(',', ':'))
 
 	def _to_llm_csv(self, elements: List[DOMElementNode]) -> str:
-		# CSV format: ni=nodeId, bni=backendNodeId, p=parentId, t=tag, tx=text, aria=aria-label(if different), int=interactive(0/1), nid=node_id, bid=backend_node_id, fid=frame_id
+		# CSV format: ni=nodeId, bni=backendNodeId, p=parentId, t=tag, tx=text, aria=aria-label(if different), int=interactive(0/1), nid=node_id, bid=backend_node_id, fid=frame_url
 		lines = ['nid|bnid|pid|t|tx|aria|int|fid']
 
 		for _, element in enumerate(elements):
@@ -221,9 +262,9 @@ class DOMTree:
 			interactive = '1' if element.is_interactive else '0'
 			node_id = element.node_id
 			backend_node_id = element.backend_node_id
-			frame_id = element.frame_id
+			frame_url = element.frame_url
 
-			lines.append(f'{node_id}|{backend_node_id}|{parent_id}|{tag}|{text}|{aria}|{interactive}|{frame_id}')
+			lines.append(f'{node_id}|{backend_node_id}|{parent_id}|{tag}|{text}|{aria}|{interactive}|{frame_url}')
 
 		return '\n'.join(lines)
 
