@@ -9,12 +9,12 @@ import json
 import logging
 import os
 import sys
-from typing import Dict, Optional
+import time
 
 # Add the current directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
-from playwright.async_api import CDPSession, Page, async_playwright
+from playwright.async_api import Browser, BrowserContext, CDPSession, Page, async_playwright
 
 from browser_use.dom.dom_optimized.service import DOMService
 from browser_use.dom.dom_optimized.views import DOMElementNode, DOMTextNode, DOMTree
@@ -27,40 +27,75 @@ logger = logging.getLogger(__name__)
 class TurnstileInteractionTest:
 	"""Test class for Turnstile checkbox interaction"""
 
-	def __init__(self):
-		self.page: Optional[Page] = None
-		self.cdp_session: Optional[CDPSession] = None
-		self.dom_service: Optional[DOMService] = None
-		self.dom_tree: Optional[DOMTree] = None
-		self.sessions: Dict[str, CDPSession] = {}
+	def __init__(self, use_remote_browser: bool = False):
+		self.page: Page | None = None
+		self.playwright: async_playwright | None = None
+		self.browser: Browser | None = None
+		self.context: BrowserContext | None = None
+		self.cdp_session: CDPSession | None = None
+		self.dom_service: DOMService | None = None
+		self.dom_tree: DOMTree | None = None
+		self.sessions: dict[str, CDPSession] = {}
+		self.use_remote_browser = use_remote_browser
+		# self.remote_ws_endpoint = 'wss://connect.anchorbrowser.io?apiKey=sk-7e4807a5d6c99bbadbdb94a3cf85a3e2&sessionId=465b7613-0f4c-42c3-b93f-22c097a7125a'
+		# self.remote_ws_endpoint = 'wss://brd-customer-hl_eb15d933-zone-scraping_browser1:ueb57qu3r57j@brd.superproxy.io:9222'
+		self.remote_ws_endpoint = 'wss://connect.usw2.browserbase.com?signingKey=eyJhbGciOiJBMjU2S1ciLCJlbmMiOiJBMjU2R0NNIn0.1W4xQ_BSR8xZxo9sZNJIxfrQkCxzY-JR5zJ1PqkudXLPDXpuia6ngA.3f2PYGmBOm_g3-6V.wAPZz1fpDZ3ZhGjb1FCj0pvIc5489-3XHXNUjaQypQ8SkORybuqwHYtLJ0NGx6OYSPpZXvNG9VALciduYWprB4UIYDXxbFMzp17F89iI5Ylk_OqruFQ_z9ySgknTV9cuOmCgBgpdr02s6h2geOIzUgoSUmRaETWbhjmyWcD9P-NX6D-MfdTKK7F-9URrEi_AyJbL3JUXLOS6PxqvWxT6r_FVjcdR8gfBq4ii-pDS7tiRTzCd_8QEJxS15PoQ-W7s6DvPbRW47DnemdJh0t3KwYA9G5nC1KxqVpICsYhQj53eWXZuqCqTrIMMF2LK2qV311Fj0aE7IwrfOMsnSnj5qRc.z5dSLV6X1PKXFGfrGTNvQA'
 
 	async def setup(self):
 		"""Setup browser and navigate to Turnstile page"""
 		print('🚀 Setting up browser and navigating to Turnstile...')
 
 		self.playwright = await async_playwright().start()
-		self.browser = await self.playwright.chromium.launch(
-			headless=False,  # Show browser for debugging
-			args=['--remote-debugging-port=9222'],
-		)
-		self.context = await self.browser.new_context()
-		self.page = await self.context.new_page()
+
+		if self.use_remote_browser:
+			print(f'🌐 Connecting to remote browser at: {self.remote_ws_endpoint}')
+			self.browser = await self.playwright.chromium.connect_over_cdp(self.remote_ws_endpoint)
+			# Get existing context or create new one
+			contexts = self.browser.contexts
+			if contexts:
+				self.context = contexts[0]
+			else:
+				self.context = await self.browser.new_context()
+			# Get existing page or create new one
+			pages = self.context.pages
+			if pages:
+				self.page = pages[0]
+			else:
+				self.page = await self.context.new_page()
+		else:
+			print('💻 Using local Chrome browser')
+			self.browser = await self.playwright.chromium.launch(
+				headless=False,  # Show browser for debugging
+				args=[
+					'--remote-debugging-port=9222',
+					'--disable-blink-features=AutomationControlled',
+				],
+				channel='chrome',  # Use Google Chrome instead of Chromium
+			)
+			self.context = await self.browser.new_context(
+				viewport={'width': 1920, 'height': 1080},
+				user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+			)
+			self.page = await self.context.new_page()
+
 		self.cdp_session = await self.context.new_cdp_session(self.page)
 
 		# Navigate to Turnstile page
-		#url = 'https://seleniumbase.io/apps/turnstile'
-		url = 'https://ahrefs.com/backlink-checker/?input=www.he-tk.de&amp;mode=subdomains'
+		# url = 'https://seleniumbase.io/apps/turnstile'
+		# url = 'https://ahrefs.com/backlink-checker/?input=www.he-tk.de&amp;mode=subdomains'
+		# url = 'https://www.hapag-lloyd.com/en/online-business/track/track-by-booking-solution.html?blno=HLCUSGN2406BVAA4'
+		url = 'https://www.gamelife.it/ccpk0126-carte-pokemon-paradise-dragona-busta-jp.html'
 		print(f'🌐 Navigating to: {url}')
 		await self.page.goto(url)
 
 		# Wait for page load with longer timeout
 		try:
-			await self.page.wait_for_load_state('domcontentloaded', timeout=60000)
+			await self.page.wait_for_load_state('load', timeout=60000)
 			print('📄 DOM content loaded')
 		except:
 			print('⚠️  DOM content load timeout, continuing anyway...')
 
-		print('⏳ Waiting 10 seconds for Turnstile to fully load...')
+		print('⏳ Waiting 6 seconds for Turnstile to fully load...')
 		await asyncio.sleep(5)
 
 	async def build_dom_tree(self):
@@ -88,127 +123,17 @@ class TurnstileInteractionTest:
 
 		return self.dom_tree
 
-	async def find_checkbox_in_dom(self) -> Optional[tuple]:
-		"""
-		Find checkbox in DOM tree and return (element, session, frame_info)
-		Returns tuple of (checkbox_element, cdp_session, frame_info) or None
-		"""
-		print('🔍 Searching for checkbox in DOM tree...')
-
-		async def find_checkbox_recursive(element: DOMElementNode, session: CDPSession, frame_info: str) -> Optional[tuple]:
-			"""Recursively search for checkbox in element tree"""
-
-			# Check if current element is a checkbox or clickeable element
-			if element.tag == 'input' and element.attributes.get('type') == 'checkbox':
-				print(f'✅ Found checkbox in {frame_info}')
-				print(f'   Node ID: {getattr(element, "node_id", None)}')
-				print(f'   Attributes: {element.attributes}')
-				return (element, session, frame_info)
-
-			# Also look for elements that might be Turnstile challenge elements
-			if element.tag in ['div', 'span', 'button'] and any(
-				keyword in str(element.attributes).lower()
-				for keyword in ['turnstile', 'challenge', 'checkbox', 'verify', 'captcha']
-			):
-				print(f'🎯 Found potential Turnstile element in {frame_info}')
-				print(f'   Tag: {element.tag}')
-				print(f'   Node ID: {getattr(element, "node_id", None)}')
-				print(f'   Attributes: {element.attributes}')
-				return (element, session, frame_info)
-
-			# Check if element is an iframe with content
-			if element.tag == 'iframe':
-				print(f'🔍 Found iframe element with {len(element.children)} children')
-				# Look for iframe content marked by our DOM service
-				for child in element.children:
-					if isinstance(child, DOMElementNode):
-						print(f'   Child: {child.tag}, attributes: {child.attributes}')
-						# Check if this is iframe content
-						target_id = child.attributes.get('data-target-id')
-						if target_id:
-							print(f'🎯 Searching in iframe content (target: {target_id})')
-							# Try to get or create session for this iframe
-							iframe_session = await self._get_iframe_session(target_id)
-							if iframe_session:
-								result = await find_checkbox_recursive(child, iframe_session, f'iframe-{target_id}')
-								if result:
-									return result
-						else:
-							# Also search in regular iframe children
-							result = await find_checkbox_recursive(child, session, f'{frame_info}-iframe-child')
-							if result:
-								return result
-
-			# Search in children
-			for child in element.children:
-				if isinstance(child, DOMElementNode):
-					result = await find_checkbox_recursive(child, session, frame_info)
-					if result:
-						return result
-
-			return None
-
-		# Start search from root
-		if self.dom_tree and self.dom_tree.root:
-			return await find_checkbox_recursive(self.dom_tree.root, self.cdp_session, 'main-frame')
-
-		return None
-
-	async def _get_iframe_session(self, target_id: str) -> Optional[CDPSession]:
-		"""Get or create CDP session for iframe target using Playwright's frame API"""
-		try:
-			if target_id in self.sessions:
-				return self.sessions[target_id]
-
-			# Find the iframe frame using Playwright's frame API (like in service.py)
-			iframe_frame = None
-			
-			logger.debug(f'Looking for iframe with target_id: {target_id}')
-			logger.debug(f'Available frames: {[f.url for f in self.page.frames]}')
-			
-			# Try to find the frame that corresponds to this target_id
-			for frame in self.page.frames:
-				if frame == self.page.main_frame:
-					continue  # Skip main frame
-					
-				# For Turnstile, the iframe is usually one of the child frames
-				# We can try to match by checking if it's not the main frame
-				iframe_frame = frame
-				logger.debug(f'Found potential iframe frame: {frame.url}')
-				break
-			
-			if iframe_frame:
-				logger.debug(f'Creating CDP session for iframe: {iframe_frame.url}')
-				
-				# Create a CDP session for this specific frame
-				iframe_session = await self.context.new_cdp_session(iframe_frame)
-				self.sessions[target_id] = iframe_session
-				
-				return iframe_session
-			else:
-				logger.warning(f'No matching frame found for target_id: {target_id}')
-				return None
-
-		except Exception as e:
-			logger.warning(f'Error getting iframe session for {target_id}: {e}')
-			import traceback
-			logger.debug(traceback.format_exc())
-
-		return None
-
-	async def click_checkbox_with_cdp(self, checkbox_element: DOMElementNode, session: CDPSession, frame_info: str):
+	async def click_checkbox_with_cdp(self, checkbox_element: DOMElementNode):
 		"""Click checkbox using CDP commands"""
-		print(f'🖱️  Attempting to click checkbox in {frame_info}...')
 
 		try:
-			node_id = getattr(checkbox_element, 'node_id', None)
-			if not node_id:
-				print('❌ No node ID available for checkbox')
-				return False
+			session = await checkbox_element.get_session(self.page)
+
+			await session.send('DOM.getDocument', {'depth': -1, 'pierce': True})
 
 			# Get box model for the checkbox
-			print(f'📐 Getting box model for node {node_id}...')
-			box_model_result = await session.send('DOM.getBoxModel', {'nodeId': node_id})
+			print(f'📐 Getting box model for node {checkbox_element.node_id}...')
+			box_model_result = await session.send('DOM.getBoxModel', {'nodeId': checkbox_element.node_id})
 
 			model = box_model_result.get('model')
 			if not model or not model.get('content'):
@@ -239,6 +164,8 @@ class TurnstileInteractionTest:
 			# Wait a moment to see the result
 			await asyncio.sleep(2)
 
+			await session.detach()
+
 			return True
 
 		except Exception as e:
@@ -266,16 +193,9 @@ class TurnstileInteractionTest:
 			return None
 
 		results = {
-			'url': 'https://seleniumbase.io/apps/turnstile',
+			'url': 'https://ahrefs.com/backlink-checker/?input=www.he-tk.de&amp;mode=subdomains',
 			'timestamp': asyncio.get_event_loop().time(),
 			'dom_tree': element_to_dict(self.dom_tree.root) if self.dom_tree.root else None,
-			'statistics': {
-				'total_elements': len(self.dom_tree.get_all_elements()),
-				'iframe_elements': len([e for e in self.dom_tree.get_all_elements() if e.tag == 'iframe']),
-				'checkbox_elements': len(
-					[e for e in self.dom_tree.get_all_elements() if e.tag == 'input' and e.attributes.get('type') == 'checkbox']
-				),
-			},
 		}
 
 		filename = 'turnstile_interaction_results.json'
@@ -317,16 +237,21 @@ class TurnstileInteractionTest:
 			await self.setup()
 
 			# Build DOM tree
+			start_time = time.time()
 			await self.build_dom_tree()
+			end_time = time.time()
+			print(f'🌳 DOM tree built in {end_time - start_time:.2f} seconds')
 
 			# Find checkbox
-			checkbox_info = await self.find_checkbox_in_dom()
+			checkbox_elements = self.dom_tree.get_element_by_condition(
+				lambda e: e.tag == 'input' and e.attributes.get('type') == 'checkbox' and 'cloudflare.com' in e.frame_url
+			)
+			checkbox_element = checkbox_elements[0] if checkbox_elements else None
 
-			if checkbox_info:
-				checkbox_element, session, frame_info = checkbox_info
-
+			if checkbox_element:
+				print(f'🖱️  Attempting to click checkbox in {checkbox_element.frame_url}...')
 				# Click checkbox
-				success = await self.click_checkbox_with_cdp(checkbox_element, session, frame_info)
+				success = await self.click_checkbox_with_cdp(checkbox_element)
 
 				if success:
 					print('🎉 Test PASSED! Checkbox was found and clicked successfully.')
@@ -336,9 +261,9 @@ class TurnstileInteractionTest:
 				print('❌ Test FAILED! No checkbox found in DOM tree.')
 
 			# Save results
-
-			print(self.dom_tree.translate_all_to_llm(format='csv'))
-
+			await asyncio.sleep(10)
+			# print(self.dom_tree.translate_all_to_llm(format='csv'))
+			print('DOM Tree nodes: ', len(self.dom_tree.get_all_elements()))
 			await self.save_results()
 
 		except Exception as e:
@@ -351,7 +276,10 @@ class TurnstileInteractionTest:
 
 async def main():
 	"""Main test function"""
-	test = TurnstileInteractionTest()
+	# Change this to True to use remote browser, False for local
+	USE_REMOTE_BROWSER = False
+
+	test = TurnstileInteractionTest(use_remote_browser=USE_REMOTE_BROWSER)
 	await test.run_test()
 
 

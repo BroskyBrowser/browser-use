@@ -1,5 +1,4 @@
 from enum import Enum
-from typing import Set
 
 from ..views import DOMElementNode
 
@@ -100,16 +99,16 @@ class DisableAttribute(Enum):
 
 
 # Pre-computed sets for performance
-INTERACTIVE_CURSORS: Set[str] = {cursor.value for cursor in CursorType}
-NON_INTERACTIVE_CURSORS: Set[str] = {cursor.value for cursor in NonInteractiveCursor}
-INTERACTIVE_TAGS: Set[str] = {tag.value for tag in InteractiveTag}
-INTERACTIVE_ROLES: Set[str] = {role.value for role in InteractiveRole}
-DISABLE_ATTRIBUTES: Set[str] = {attr.value for attr in DisableAttribute}
-MOUSE_EVENT_ATTRIBUTES: Set[str] = {'onclick', 'onmousedown', 'onmouseup', 'ondblclick'}
-INTERACTIVE_CLASS_INDICATORS: Set[str] = {'button', 'dropdown-toggle'}
-INTERACTIVE_DATA_ATTRIBUTES: Set[str] = {'data-index', 'data-toggle', 'data-action', 'data-onclick', 'data-click'}
-SEMANTIC_INTERACTIVE_ATTRIBUTES: Set[str] = {'aria-label', 'aria-labelledby', 'aria-describedby'}
-EMPTY_HREF_VALUES: Set[str] = {'', '#', 'javascript:void(0)', 'javascript:;'}
+INTERACTIVE_CURSORS: set[str] = {cursor.value for cursor in CursorType}
+NON_INTERACTIVE_CURSORS: set[str] = {cursor.value for cursor in NonInteractiveCursor}
+INTERACTIVE_TAGS: set[str] = {tag.value for tag in InteractiveTag}
+INTERACTIVE_ROLES: set[str] = {role.value for role in InteractiveRole}
+DISABLE_ATTRIBUTES: set[str] = {attr.value for attr in DisableAttribute}
+MOUSE_EVENT_ATTRIBUTES: set[str] = {'onclick', 'onmousedown', 'onmouseup', 'ondblclick'}
+INTERACTIVE_CLASS_INDICATORS: set[str] = {'button', 'dropdown-toggle'}
+INTERACTIVE_DATA_ATTRIBUTES: set[str] = {'data-index', 'data-toggle', 'data-action', 'data-onclick', 'data-click'}
+SEMANTIC_INTERACTIVE_ATTRIBUTES: set[str] = {'aria-label', 'aria-labelledby', 'aria-describedby'}
+EMPTY_HREF_VALUES: set[str] = {'', '#', 'javascript:void(0)', 'javascript:;'}
 
 
 def _has_interactive_cursor(node: DOMElementNode) -> bool:

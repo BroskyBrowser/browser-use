@@ -1,17 +1,16 @@
-import json
+import asyncio
 import logging
 from enum import IntEnum
-from typing import Any, Dict, Optional, Set
-import asyncio
+from typing import Any
 
 from playwright.async_api import BrowserContext, CDPSession, Page
 
+from browser_use.dom.dom_optimized.utils.enrichment import enrich_dom_tree
 from browser_use.dom.dom_optimized.views import DOMElementNode, DOMTextNode, DOMTree
 
 # @file purpose: Defines DOMService for building DOM trees using raw CDP calls
 
 logger = logging.getLogger(__name__)
-
 
 
 class NodeType(IntEnum):
@@ -36,17 +35,12 @@ class DOMService:
 		self.page: Page = page
 		self.context: BrowserContext = context
 		self.cdp_session: CDPSession = cdp_session
-		self.dom_tree: Optional[DOMTree] = None
-		# Track backend node ID to element mapping for enrichment
-		self.backend_node_map: Dict[int, DOMElementNode] = {}
-		# PyCDP connection for iframe handling
-		self.pycdp_connection = None
-		self.cdp_port = None
+		self.dom_tree: DOMTree | None = None
 		# State tracking for frame processing
-		self.processed_frames: Set[str] = set()
-		self.processed_iframe_nodes: Set[int] = set()
-		self.sessions: Dict[str, Any] = {}
-		self.session_frame_urls: Dict[CDPSession, str] = {}
+		self.processed_frames: set[str] = set()
+		self.processed_iframe_nodes: set[int] = set()
+		self.sessions: dict[str, Any] = {}
+		self.session_frame_urls: dict[CDPSession, str] = {}
 		# Add depth tracking for iframe recursion
 		self.iframe_depth = 0
 		self.max_iframe_depth = 3  # Prevent infinite recursion
@@ -56,7 +50,7 @@ class DOMService:
 		self.page = page
 		self.cdp_session = await page.context.new_cdp_session(page)
 
-	def get_dom_tree(self) -> Optional[DOMTree]:
+	def get_dom_tree(self) -> DOMTree | None:
 		"""Get the cached DOM tree or build a new one"""
 		if self.dom_tree is None:
 			return self.build_dom_tree()
@@ -76,7 +70,6 @@ class DOMService:
 			self.processed_iframe_nodes.clear()
 			self.sessions.clear()
 			self.session_frame_urls.clear()
-			self.backend_node_map.clear()
 
 			# get targets and print all info
 			targets_result = await self.cdp_session.send('Target.getTargets')
@@ -105,7 +98,7 @@ class DOMService:
 			self.dom_tree = DOMTree(root_element)
 
 			# Enrich the tree with computed styles and positioning data
-			# await enrich_dom_tree(self.dom_tree, self.backend_node_map, self.sessions, self.session_frame_urls, self.cdp_session)
+			await enrich_dom_tree(self.dom_tree, self.sessions, self.session_frame_urls, self.cdp_session, self.page)
 
 			logger.info('DOM tree construction and enrichment completed successfully')
 			return self.dom_tree
@@ -115,7 +108,7 @@ class DOMService:
 			# Re-raise the exception instead of creating fallback
 			raise RuntimeError(f'Failed to build DOM tree from CDP data: {e}') from e
 
-	async def _traverse_node_recursive(self, cdp_node: Dict[str, Any], frame_url: str) -> Optional[DOMElementNode]:
+	async def _traverse_node_recursive(self, cdp_node: dict[str, Any], frame_url: str) -> DOMElementNode | None:
 		"""
 		Recursively traverse a CDP node and its children, switching to iframe sessions when needed.
 		"""
@@ -164,9 +157,6 @@ class DOMService:
 					attributes=attributes,
 				)
 
-				# Add to backend node mapping for enrichment
-				self.backend_node_map[backend_node_id] = element
-
 				# Process all children (elements, text nodes, shadow roots)
 				children = cdp_node.get('children', [])
 				for child in children:
@@ -196,7 +186,6 @@ class DOMService:
 
 				# Special handling for iframe elements
 				if element.tag == 'iframe':
-
 					logger.debug(
 						f'Found iframe element: src={element.attributes.get("src", "")}, backend_node_id={backend_node_id}'
 					)
@@ -205,11 +194,11 @@ class DOMService:
 						logger.debug(f'Skipping already processed iframe node: {backend_node_id}')
 					else:
 						self.processed_iframe_nodes.add(backend_node_id)
-						
+
 						# Check if CDP already provided content for this iframe
 						iframe_content_node = cdp_node.get('contentDocument')
 						if iframe_content_node:
-							logger.debug(f'Found contentDocument in CDP data for iframe')
+							logger.debug('Found contentDocument in CDP data for iframe')
 							# Process the content document directly
 							iframe_content = await self._traverse_node_recursive(iframe_content_node, frame_url)
 							if iframe_content:
@@ -260,23 +249,23 @@ class DOMService:
 		if self.iframe_depth >= self.max_iframe_depth:
 			logger.warning(f'Maximum iframe depth ({self.max_iframe_depth}) reached, skipping frame: {iframe_element.frame_url}')
 			return None
-			
+
 		if not iframe_element.frame_url or iframe_element.frame_url in self.processed_frames:
 			logger.debug(f'Skipping already processed frame: {iframe_element.frame_url}')
 			return
-			
+
 		self.processed_frames.add(iframe_element.frame_url)
 		self.iframe_depth += 1  # Increment depth
-		
+
 		try:
 			# Add timeout to prevent infinite waiting
 			result = await asyncio.wait_for(
 				self._process_iframe_with_playwright_cdp(iframe_element),
-				timeout=10.0  # 10 second timeout per iframe
+				timeout=10.0,  # 10 second timeout per iframe
 			)
 			return result
-				
-		except asyncio.TimeoutError:
+
+		except TimeoutError:
 			logger.warning(f'Timeout processing iframe content for frame {iframe_element.frame_url}')
 			return None
 		except Exception as e:
@@ -285,53 +274,40 @@ class DOMService:
 		finally:
 			self.iframe_depth -= 1  # Decrement depth when done
 
-
 	async def _process_iframe_with_playwright_cdp(self, iframe_element: DOMElementNode):
 		"""Process iframe content using Playwright's frame API and CDP"""
 		try:
 			# Find the iframe frame using Playwright's frame API
-			frame_cdp_session = await iframe_element.get_session_id(self.page)
-			
+			frame_cdp_session = await iframe_element.get_session(self.page)
+
 			if not frame_cdp_session:
 				logger.warning(f'Could not create CDP session for iframe: {iframe_element.frame_url}')
 				return None
-			
-			try:
-				# Get the frame document with timeout
-				print(f'Getting DOM document for frame: {iframe_element.frame_url}')
-				frame_doc_result = await asyncio.wait_for(
-					frame_cdp_session.send('DOM.getDocument', {
-						'depth': -1, 
-						'pierce': True
-					}),
-					timeout=5.0  # 5 second timeout for CDP call
-				)
-				
-				root = frame_doc_result.get('root')
-				if root:
-					# Get the actual document URL from the iframe document
-					iframe_document_url = root.get("documentURL", iframe_element.frame_url)
-					logger.debug(f'Got iframe document: {iframe_document_url}')
-					# Store the iframe session URL
-					self.session_frame_urls[frame_cdp_session] = iframe_document_url
-					# Store the session
-					self.sessions[iframe_document_url] = frame_cdp_session
-					# Use the iframe document URL for the iframe content
-					return await self._traverse_node_recursive(root, iframe_document_url)
-				else:
-					logger.warning(f'No root node in iframe document')
-					return None
-			
-			finally:
-				# Clean up the frame CDP session
-				logger.debug(f'Detaching CDP session for frame: {iframe_element.frame_url}')
-				try:
-					await asyncio.wait_for(frame_cdp_session.detach(), timeout=2.0)
-				except:
-					pass  # Ignore detach errors
+
+			logger.debug(f'Getting DOM document for frame: {iframe_element.frame_url}')
+			frame_doc_result = await asyncio.wait_for(
+				frame_cdp_session.send('DOM.getDocument', {'depth': -1, 'pierce': True}),
+				timeout=5.0,  # 5 second timeout for CDP call
+			)
+
+			root = frame_doc_result.get('root')
+			if root:
+				# Get the actual document URL from the iframe document
+				iframe_document_url = root.get('documentURL', iframe_element.frame_url)
+				logger.debug(f'Got iframe document: {iframe_document_url}')
+				# Store the iframe session URL
+				self.session_frame_urls[frame_cdp_session] = iframe_document_url
+				# Store the session
+				self.sessions[iframe_document_url] = frame_cdp_session
+				# Use the iframe document URL for the iframe content
+				return await self._traverse_node_recursive(root, iframe_document_url)
+			else:
+				logger.warning('No root node in iframe document')
+				return None
 
 		except Exception as e:
 			logger.error(f'Error processing iframe with Playwright: {e}')
 			import traceback
+
 			logger.debug(traceback.format_exc())
 			return None
