@@ -3,8 +3,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from browser_use.dom.dom_optimized.views import DOMElementNode, DOMTree
 from browser_use.dom.history_tree_processor.service import DOMHistoryElement
-from browser_use.dom.views import DOMState
 
 
 # Pydantic
@@ -18,13 +18,14 @@ class TabInfo(BaseModel):
 
 
 @dataclass
-class BrowserStateSummary(DOMState):
+class BrowserStateSummary:
 	"""The summary of the browser's current state designed for an LLM to process"""
 
 	# provided by DOMState:
 	# element_tree: DOMElementNode
 	# selector_map: SelectorMap
-
+	element_tree: DOMTree
+	selector_map: dict[int, DOMElementNode]
 	url: str
 	title: str
 	tabs: list[TabInfo]

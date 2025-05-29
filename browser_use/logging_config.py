@@ -24,11 +24,6 @@ def addLoggingLevel(levelName, levelNum, methodName=None):
 
 	Example
 	-------
-	>>> addLoggingLevel('TRACE', logging.DEBUG - 5)
-	>>> logging.getLogger(__name__).setLevel('TRACE')
-	>>> logging.getLogger(__name__).trace('that worked')
-	>>> logging.trace('so did this')
-	>>> logging.TRACE
 	5
 
 	"""
