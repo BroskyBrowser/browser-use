@@ -28,7 +28,7 @@ from browser_use.browser.views import (
 	URLNotAllowedError,
 )
 from browser_use.dom.clickable_element_processor.service import ClickableElementProcessor
-from browser_use.dom.service import DomService
+from browser_use.dom.dom_optimized.service import DOMService
 from browser_use.dom.views import DOMElementNode, SelectorMap
 from browser_use.utils import match_url_with_domain_pattern, time_execution_async, time_execution_sync
 
@@ -1428,12 +1428,8 @@ class BrowserSession(BaseModel):
 
 		try:
 			await self.remove_highlights()
-			dom_service = DomService(page)
-			content = await dom_service.get_clickable_elements(
-				focus_element=focus_element,
-				viewport_expansion=self.browser_profile.viewport_expansion,
-				highlight_elements=self.browser_profile.highlight_elements,
-			)
+			dom_service = DOMService(page, self.browser_context, await self.browser_context.new_cdp_session(page))
+			dom_tree, interactive_elements_list = await dom_service.get_doom_trees()
 
 			tabs_info = await self.get_tabs_info()
 
@@ -1462,8 +1458,8 @@ class BrowserSession(BaseModel):
 			pixels_above, pixels_below = await self.get_scroll_info(page)
 
 			self.browser_state_summary = BrowserStateSummary(
-				element_tree=content.element_tree,
-				selector_map=content.selector_map,
+				element_tree=dom_tree,
+				selector_map=interactive_elements_list,
 				url=page.url,
 				title=await page.title(),
 				tabs=tabs_info,

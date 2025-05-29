@@ -50,10 +50,28 @@ class DOMService:
 		self.page = page
 		self.cdp_session = await page.context.new_cdp_session(page)
 
-	def get_dom_tree(self) -> DOMTree | None:
+
+	async def get_doom_trees(self) -> tuple[DOMTree, dict[int, DOMElementNode]]:
 		"""Get the cached DOM tree or build a new one"""
 		if self.dom_tree is None:
-			return self.build_dom_tree()
+			dom_tree = await asyncio.wait_for(
+				self.build_dom_tree(),
+				timeout=30.0,  # 30 second overall timeout
+			)
+			return dom_tree, dom_tree.get_interactive_elements()
+
+		interactive_elements_list = self.dom_tree.get_interactive_elements()
+		selector_map = {element.node_id: element for element in interactive_elements_list}
+
+		return self.dom_tree, selector_map
+
+	async def get_dom_tree(self) -> DOMTree | None:
+		"""Get the cached DOM tree or build a new one"""
+		if self.dom_tree is None:
+			return await asyncio.wait_for(
+				self.build_dom_tree(),
+				timeout=30.0,  # 30 second overall timeout
+			)
 		return self.dom_tree
 
 	async def build_dom_tree(self) -> DOMTree:
