@@ -145,6 +145,10 @@ class DomService:
 			if node is None:
 				continue
 
+			# Assign the JavaScript ID to the node
+			if isinstance(node, DOMElementNode):
+				node.id = int(id)
+
 			node_map[id] = node
 
 			if isinstance(node, DOMElementNode) and node.highlight_index is not None:
